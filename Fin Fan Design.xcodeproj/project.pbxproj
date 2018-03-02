@@ -25,6 +25,8 @@
 /* Begin PBXFileReference section */
 		281D028D204920750098F595 /* Fin Fan Design */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = "Fin Fan Design"; sourceTree = BUILT_PRODUCTS_DIR; };
 		281D0290204920750098F595 /* main.cpp */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.cpp; path = main.cpp; sourceTree = "<group>"; };
+		281D02972049208E0098F595 /* semiProperties.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = semiProperties.h; sourceTree = "<group>"; };
+		281D0298204920A70098F595 /* contProperties.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = contProperties.h; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -58,6 +60,8 @@
 			isa = PBXGroup;
 			children = (
 				281D0290204920750098F595 /* main.cpp */,
+				281D02972049208E0098F595 /* semiProperties.h */,
+				281D0298204920A70098F595 /* contProperties.h */,
 			);
 			path = "Fin Fan Design";
 			sourceTree = "<group>";
