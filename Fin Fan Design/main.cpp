@@ -12,10 +12,6 @@
 //  - Fouling factor
 //  - Air-side pressure needs to account for enclosures, etc ...
 //
-//  Functionality Notes:
-//  - Nozzle pressure drop needs to be added in
-//  - Fan and motor calculations are incomplete
-//
 
 #include <iostream>
 #include <cmath>
@@ -23,8 +19,8 @@
 #include <vector>
 #include <tuple>
 #include <iomanip>
-#include "semiProperties.h" // semi-regenerative process properties
-//#include "contProperties.h" // continuous regenerative proces properties
+//#include "semiProperties.h" // semi-regenerative process properties
+#include "contProperties.h" // continuous regenerative proces properties
 
 
 // Air Properties
@@ -191,10 +187,12 @@ float tubeDrop(float Re, float n_p, float n_t, float L, float m)
     phi = 1;
     delP = f * n_p * L * pow(G,2) / (7.50e+12 * (0.81 / 12) * s * phi);
     delP += ((1.334e-13) * (2 * n_p - 1.5) * (pow(G, 2) / s)); // Nozzle pressure drop is causing issues
-    //float G_n, Re_n
-    //G_n = m / 0.1390; // Assuming 5 in, schedule 40 nozzles -> source for 0.1390 ft^2
-    //Re_n = ((5.047 / 12)*G_n) / mu;
-    //delP += (2.0e-13*pow(G_n, 2)) / s;
+    
+    float G_n, Re_n;
+    G_n = m / 0.1390; // Assuming 5 in, schedule 40 nozzles -> source for 0.1390 ft^2
+    Re_n = ((5.047 / 12)*G_n) / mu;
+    delP += (2.0e-13*pow(G_n, 2)) / s;
+    
     return delP;
 }
 
@@ -250,7 +248,7 @@ float finEff(float D_r, float b, float h_o, float n_f)
 // Calculate Clean Overall Coefficient
 float cleanU(float AtAi, float h_i, float AtAl, float D_r, float D_i, float eff_w, float h_o)
 {
-    float k_tube = 26; // INVESTIGATE
+    float k_tube = k_al; // INVESTIGATE
     float U_c = pow((AtAi / h_i) + (AtAl * log(D_r / D_i) / (2 * M_PI * k_tube)) + (1 / (eff_w * h_o)), -1);
     return U_c;
 }
@@ -281,14 +279,15 @@ float airDrop(float D_r, float b, float pitch, float n_f, float Re_air, float V_
     float f = (1 + 2 * exp(-a / 4) / (1 + a)) * (0.021 + 27.2 / Re_eff + 0.29 / pow(Re_eff, 0.2));
     float G = rho_avg * V_max;
     float delP = 9.22e-10 * f * rows * pow(G, 2) / rho_avg;
+    delP = delP * 1.30; // Account for losses from hail guards, etc ...
     return delP;
 }
 
 // Calculate Fan Sizing
-std::tuple<float, float, float> fanSize(float A_face, float fbp, float ma)
+std::tuple<float, float, float> fanSize(float A_face, float fbp, float delP, float ma)
 {
     float D_fan_min = sqrt(0.4 * A_face * 4 / (fbp * M_PI));
-    float FSP = 0;
+    float FSP = delP; // Assumption from SOURCE
     float v_fan = ((1 / fbp) * (ma / 60)) / rho_avg;
     
     std::tuple<float, float, float> fan_output;
@@ -298,12 +297,20 @@ std::tuple<float, float, float> fanSize(float A_face, float fbp, float ma)
 }
 
 // Calculate Motor Size
-float motorSize(float FSP, float v_fan, float D_fr,float alpha_fr, float rho_fr)
+std::tuple<float, float, float> motorSize(float FSP, float v_fan, float D_fr, float alpha_fr, float rho_fr, float eff_fan)
 {
     float g_c = 32.174; // acceleration constant
-    float V_fr = v_fan / (M_PI * pow(D_fr, 2) / 4);
+    float V_fr = (v_fan / (M_PI * pow(D_fr, 2) / 4)) / 60;
     float delP_fan = FSP + alpha_fr * rho_fr * pow(V_fr, 2) / (2 * g_c);
-    return delP_fan;
+    
+    float W_fan = delP_fan * v_fan / (6342.0 * eff_fan);
+    float eff_sr = 0.95;
+    float W_motor = W_fan / eff_sr;
+    
+    std::tuple<float, float, float> motor_output;
+    {
+        return std::make_tuple(delP_fan, W_fan, W_motor);
+    }
 }
 
 // Summarize Design Results - WORK IN PROGRESS
@@ -380,6 +387,7 @@ int main()
     std::cout << "Heat transfer area: " << A << " ft^2" << std::endl;
     
     int config = 0; // set to 0 for first configuration or 1 for second configuration of Table 12.1
+    std::cout << "Configuration: " << config << std::endl;
     float AtAl = 0, AtAi = 0, pitch = 0, b = 0, n_f = 0, D_r = 1.0, D_i = 0.81, AtAo = 0;
     
     if (config == 0)
@@ -493,7 +501,7 @@ int main()
     float delP_air = airDrop(D_r, b, pitch, n_f, Re_air, V_max, rows);
     std::cout << "Air-side pressure drop: " << delP_air << " in. H2O" << std::endl;
     float fbp = 2; // Numbers of fans per bay
-    std::tuple<float, float, float> fan_output = fanSize(A_act, fbp, ma);
+    std::tuple<float, float, float> fan_output = fanSize(A_act, fbp, delP_air, ma);
     float D_fan_min = std::get<0>(fan_output);
     float FSP = std::get<1>(fan_output);
     float v_fan = std::get<2>(fan_output);
@@ -501,10 +509,24 @@ int main()
     std::cout << "Fan static pressure: " << FSP << " in. H2O" << std::endl;
     std::cout << "Volumetric flow rate per fan: " << v_fan << " acfm" << std::endl;
     
+    std::cout << std::endl;
+    
+    float D_fr = 12.0;
+    float alpha_fr = 1.08;
+    float rho_fr = 0.04911;
+    float eff_fan = 0.65;
+    std::tuple<float, float, float> motor_output = motorSize(FSP, v_fan, D_fr, alpha_fr, rho_fr, eff_fan);
+    float delP_fan = std::get<0>(motor_output);
+    float W_fan = std::get<1>(motor_output);
+    float W_motor = std::get<2>(motor_output);
+    std::cout << "Total pressure difference across fan: " << delP_fan << " in. H2O" << std::endl;
+    std::cout << "Brake power: " << W_fan << " hp" << std::endl;
+    std::cout << "Motor size: " << W_motor << " hp" << std::endl;
+    
     
     std::cout << std::endl;
     
-    //summary(); // Function to summarize final design results - WORK IN PROGRESS
+    //summary(bundles); // Function to summarize final design results - WORK IN PROGRESS
     
     std::cout << std::endl;
     return 0;
